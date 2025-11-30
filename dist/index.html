@@ -412,6 +412,59 @@
   </div>
 
   <script>
+    // [Storage-Manager-Injected]
+
+function createStorageManager(appId) {
+  const stateKey = `app-state:${appId}`;
+  const expiryKey = `app-state-expiry:${appId}`;
+  return {
+    save(state, ttlMs = null) {
+      try {
+        localStorage.setItem(stateKey, JSON.stringify(state));
+        if (ttlMs) {
+          const expiryTime = Date.now() + ttlMs;
+          localStorage.setItem(expiryKey, expiryTime.toString());
+        }
+      } catch (error) {
+        console.error(`[Storage] Failed to save state for ${appId}:`, error);
+      }
+    },
+    load() {
+      try {
+        const expiryTime = localStorage.getItem(expiryKey);
+        if (expiryTime && Date.now() > parseInt(expiryTime)) {
+          this.clear();
+          return null;
+        }
+        const stateStr = localStorage.getItem(stateKey);
+        return stateStr ? JSON.parse(stateStr) : null;
+      } catch (error) {
+        console.error(`[Storage] Failed to load state for ${appId}:`, error);
+        return null;
+      }
+    },
+    clear() {
+      try {
+        localStorage.removeItem(stateKey);
+        localStorage.removeItem(expiryKey);
+      } catch (error) {
+        console.error(`[Storage] Failed to clear state for ${appId}:`, error);
+      }
+    }
+  };
+}
+
+    const storage = createStorageManager('app-task-editor');
+    const savedState = storage.load();
+    if (savedState) {
+      selectedTask = savedState.selectedTask || selectedTask;
+      selectedRunner = savedState.selectedRunner || selectedRunner;
+    }
+    window.addEventListener('beforeunload', () => {
+      storage.save({ selectedTask, selectedRunner });
+    });
+  
+
     function showToast(message, type = "info", duration = 3000) { const c = document.getElementById("toastContainer"); if (!c) return; const t = document.createElement("div"); t.className = `toast ${type}`; t.textContent = message; c.appendChild(t); setTimeout(() => { t.style.animation = "slideOut 0.3s ease-out forwards"; setTimeout(() => t.remove(), 300); }, duration); } function showError(message) { showToast(message, "error"); } function showSuccess(message) { showToast(message, "success"); } function showWarning(message) { showToast(message, "warning"); }
     let currentTask = {
       name: 'example-simple',
