@@ -6,7 +6,6 @@
   <title>Task Editor</title>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-dark.min.css" />
   <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
-    function showToast(message, type = "info", duration = 3000) { const c = document.getElementById("toastContainer"); if (!c) return; const t = document.createElement("div"); t.className = `toast ${type}`; t.textContent = message; c.appendChild(t); setTimeout(() => { t.style.animation = "slideOut 0.3s ease-out forwards"; setTimeout(() => t.remove(), 300); }, duration); } function showError(message) { showToast(message, "error"); } function showSuccess(message) { showToast(message, "success"); } function showWarning(message) { showToast(message, "warning"); }
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
@@ -463,9 +462,23 @@ function createStorageManager(appId) {
     window.addEventListener('beforeunload', () => {
       storage.save({ selectedTask, selectedRunner });
     });
-  
 
-    function showToast(message, type = "info", duration = 3000) { const c = document.getElementById("toastContainer"); if (!c) return; const t = document.createElement("div"); t.className = `toast ${type}`; t.textContent = message; c.appendChild(t); setTimeout(() => { t.style.animation = "slideOut 0.3s ease-out forwards"; setTimeout(() => t.remove(), 300); }, duration); } function showError(message) { showToast(message, "error"); } function showSuccess(message) { showToast(message, "success"); } function showWarning(message) { showToast(message, "warning"); }
+    function showToast(message, type = "info", duration = 3000) {
+      const container = document.getElementById("toastContainer");
+      if (!container) return;
+      const toast = document.createElement("div");
+      toast.className = `toast ${type}`;
+      toast.textContent = message;
+      container.appendChild(toast);
+      setTimeout(() => {
+        toast.style.animation = "slideOut 0.3s ease-out forwards";
+        setTimeout(() => toast.remove(), 300);
+      }, duration);
+    }
+
+    function showError(message) { showToast(message, "error"); }
+    function showSuccess(message) { showToast(message, "success"); }
+    function showWarning(message) { showToast(message, "warning"); }
     let currentTask = {
       name: 'example-simple',
       type: 'sequential-js',
@@ -565,24 +578,39 @@ export async function process(result) {
       statusBadge.className = 'status-badge running';
       statusBadge.textContent = 'Running';
 
-      addConsoleLog('Starting task execution...', 'info');
+      addConsoleLog('Starting task execution (virtualized)...', 'info');
       addConsoleLog('Runner: ' + currentTask.type, 'info');
 
       try {
         const testInput = JSON.parse(document.getElementById('testInput').value);
         addConsoleLog('Input: ' + JSON.stringify(testInput, null, 2), 'info');
 
-        const code = document.getElementById('codeEditor').value;
         const taskName = document.getElementById('taskName').value;
 
         try {
-          const fn = new Function('fetch', 'input', `${code}; return myTask(input);`);
-          const result = await fn(fetch, testInput);
+          const response = await fetch(`/api/tasks/${taskName}/run`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ input: testInput })
+          });
 
-          addConsoleLog('✓ Task completed successfully', 'success');
-          addConsoleLog('Output: ' + JSON.stringify(result, null, 2), 'success');
-          statusBadge.className = 'status-badge success';
-          statusBadge.textContent = 'Success';
+          const result = await response.json();
+
+          if (result.status === 'success' || result.status === 'completed') {
+            addConsoleLog('✓ Task completed successfully', 'success');
+            addConsoleLog('Duration: ' + result.duration + 'ms', 'success');
+            addConsoleLog('Output: ' + JSON.stringify(result.output, null, 2), 'success');
+            statusBadge.className = 'status-badge success';
+            statusBadge.textContent = 'Success';
+          } else {
+            addConsoleLog('✗ Task execution failed', 'error');
+            addConsoleLog('Error: ' + (result.error || 'Unknown error'), 'error');
+            if (result.output && result.output.stack) {
+              addConsoleLog('Stack: ' + result.output.stack, 'error');
+            }
+            statusBadge.className = 'status-badge error';
+            statusBadge.textContent = 'Error';
+          }
         } catch (execError) {
           addConsoleLog('✗ Execution error: ' + execError.message, 'error');
           addConsoleLog('Stack: ' + execError.stack, 'error');
@@ -611,27 +639,65 @@ export async function process(result) {
       addConsoleLog('Console cleared', 'info');
     }
 
-    function saveTask() {
+    async function saveTask() {
       currentTask.code = document.getElementById('codeEditor').value;
-      addConsoleLog('Task saved: ' + currentTask.name, 'success');
-      showError('Task saved!');
+      currentTask.name = document.getElementById('taskName').value;
+
+      try {
+        const response = await fetch(`/api/tasks/${currentTask.name}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(currentTask)
+        });
+
+        if (response.ok) {
+          addConsoleLog('✓ Task saved: ' + currentTask.name, 'success');
+          showSuccess('Task saved!');
+        } else {
+          const error = await response.json();
+          addConsoleLog('✗ Save failed: ' + (error.message || 'Unknown error'), 'error');
+          showError('Failed to save task');
+        }
+      } catch (error) {
+        addConsoleLog('✗ Save error: ' + error.message, 'error');
+        showError('Error saving task');
+      }
     }
 
     function newTask() {
       currentTask = {
-        name: 'new-task',
+        name: 'new-task-' + Date.now(),
         type: 'sequential-js',
         code: 'export async function myTask(input) {\n  // Your code here\n  return { success: true };\n}',
         inputs: []
       };
       document.getElementById('codeEditor').value = currentTask.code;
       document.getElementById('taskName').value = currentTask.name;
+      addConsoleLog('New task created: ' + currentTask.name, 'info');
+      updateHighlight();
     }
 
-    function deleteTask() {
-      if (confirm('Delete task "' + currentTask.name + '"?')) {
-        addConsoleLog('Task deleted: ' + currentTask.name, 'info');
-        newTask();
+    async function deleteTask() {
+      if (!confirm('Delete task "' + currentTask.name + '"?')) return;
+
+      try {
+        const response = await fetch(`/api/tasks/${currentTask.name}`, {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' }
+        });
+
+        if (response.ok) {
+          addConsoleLog('✓ Task deleted: ' + currentTask.name, 'info');
+          showSuccess('Task deleted!');
+          newTask();
+        } else {
+          const error = await response.json();
+          addConsoleLog('✗ Delete failed: ' + (error.message || 'Unknown error'), 'error');
+          showError('Failed to delete task');
+        }
+      } catch (error) {
+        addConsoleLog('✗ Delete error: ' + error.message, 'error');
+        showError('Error deleting task');
       }
     }
 
