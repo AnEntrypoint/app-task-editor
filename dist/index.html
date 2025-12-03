@@ -715,5 +715,10 @@ export async function process(result) {
       });
     });
   </script>
+  <script src="/error-handler.js"></script>
+  <script>
+    const errorHandler = new ErrorHandler('app-task-editor');
+    window.errorHandler = errorHandler;
+  </script>
 </body>
 </html>
